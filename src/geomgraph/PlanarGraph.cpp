@@ -204,23 +204,37 @@ void
 PlanarGraph::addEdges(const std::vector<Edge*>& edgesToAdd)
 {
     // create all the nodes for the edges
-    for(std::vector<Edge*>::const_iterator it = edgesToAdd.begin(),
+    std::vector<Edge*>::const_iterator currentIt = edgesToAdd.begin();
+    try {
+        for (std::vector<Edge*>::const_iterator it = edgesToAdd.begin(),
             endIt = edgesToAdd.end(); it != endIt; ++it) {
-        Edge* e = *it;
-        assert(e);
-        edges->push_back(e);
+            Edge* e = *it;
+            assert(e);
+            edges->push_back(e);
+            currentIt = it;
 
-        // PlanarGraph destructor will delete all DirectedEdges
-        // in edgeEndList, which is where these are added
-        // by the ::add(EdgeEnd) call
-        auto de1 = detail::make_unique<DirectedEdge>(e, true);
-        auto de2 = detail::make_unique<DirectedEdge>(e, false);
-        de1->setSym(de2.get());
-        de2->setSym(de1.get());
+            // PlanarGraph destructor will delete all DirectedEdges
+            // in edgeEndList, which is where these are added
+            // by the ::add(EdgeEnd) call
+            auto de1 = detail::make_unique<DirectedEdge>(e, true);
+            auto de2 = detail::make_unique<DirectedEdge>(e, false);
+            de1->setSym(de2.get());
+            de2->setSym(de1.get());
 
-        // First, ::add takes the ownership, then follows with operations that may throw.
-        add(de1.release());
-        add(de2.release());
+            // First, ::add takes the ownership, then follows with operations that may throw.
+            add(de1.release());
+            add(de2.release());
+            
+        }
+    }
+    catch (const util::GEOSException& /* exc */) {
+        //if something wrong with add(de1.release()) or add(de2.release()),we need to free up the remaining memory
+        for (currentIt++; currentIt != edgesToAdd.end(); ++currentIt)
+        {
+            Edge* e = *currentIt;
+            delete e;
+        }
+        throw;
     }
 }
 

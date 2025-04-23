@@ -275,7 +275,9 @@ OffsetSegmentGenerator::addDirectedFillet(const Coordinate& p, double startAngle
     int nSegs = (int)(totalAngle / filletAngleQuantum + 0.5);
 
     // no segments because angle is less than increment-nothing to do!
-    if(nSegs < 1) return;
+    // in arm cpu ,if filletAngleQuantum too small , nSegs will be int_max 2147483647
+    // but in x86 ,if filletAngleQuantum too small , nSegs will be int_min -2147483647-1
+    if(nSegs < 1 || nSegs >= std::numeric_limits<int>::max()) return;
 
     // double initAngle, currAngleInc;
     double angleInc = totalAngle / nSegs;
