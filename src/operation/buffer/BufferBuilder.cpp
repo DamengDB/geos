@@ -626,47 +626,71 @@ BufferBuilder::computeNodedEdges(SegmentString::NonConstVect& bufferSegStrList,
                                     bufferSegStrList.end()).get()
               ) << std::endl;
 #endif
+    SegmentString::NonConstVect* nodedSegStrings = nullptr;
+    SegmentString::NonConstVect::iterator m;
 
-    noder->computeNodes(&bufferSegStrList);
+    //add this try..catch is to release noder and nodedSegStrings memory if something wrong with computeNodes or removeRepeatedPoints function
+    try {
+        noder->computeNodes(&bufferSegStrList);
 
-    SegmentString::NonConstVect* nodedSegStrings = \
+        nodedSegStrings = \
             noder->getNodedSubstrings();
 
 #if JTS_DEBUG
-    std::cerr << "after noding: "
-              << wktWriter.write(
-                  convertSegStrings(geomFact, bufferSegStrList.begin(),
-                                    bufferSegStrList.end()).get()
-              ) << std::endl;
+	    std::cerr << "after noding: "
+	              << wktWriter.write(
+	                  convertSegStrings(geomFact, bufferSegStrList.begin(),
+	                                    bufferSegStrList.end()).get()
+	              ) << std::endl;
 #endif
 
+		m = nodedSegStrings->begin();
+	    for(SegmentString::NonConstVect::iterator
+	            i = nodedSegStrings->begin(), e = nodedSegStrings->end();
+	            i != e;
+	            ++i) {
+	        SegmentString* segStr = *i;
+	        const Label* oldLabel = static_cast<const Label*>(segStr->getData());
 
-    for(SegmentString::NonConstVect::iterator
-            i = nodedSegStrings->begin(), e = nodedSegStrings->end();
-            i != e;
-            ++i) {
-        SegmentString* segStr = *i;
-        const Label* oldLabel = static_cast<const Label*>(segStr->getData());
+	        auto cs = operation::valid::RepeatedPointRemover::removeRepeatedPoints(segStr->getCoordinates());
+			//take note of the pointer position
+            m = i;
+	        delete segStr;
+	        if(cs->size() < 2) {
+	            // don't insert collapsed edges
+	            // we need to take care of the memory here as cs is a new sequence
+	            continue;
+	        }
 
-        auto cs = operation::valid::RepeatedPointRemover::removeRepeatedPoints(segStr->getCoordinates());
-        delete segStr;
-        if(cs->size() < 2) {
-            // don't insert collapsed edges
-            // we need to take care of the memory here as cs is a new sequence
-            continue;
+	        // Edge takes ownership of the CoordinateSequence
+	        Edge* edge = new Edge(cs.release(), *oldLabel);
+
+	        // will take care of the Edge ownership
+	        insertUniqueEdge(edge);
+	    }
+
+	    delete nodedSegStrings;
+
+        if (noder != workingNoder) {
+            delete noder;
         }
-
-        // Edge takes ownership of the CoordinateSequence
-        Edge* edge = new Edge(cs.release(), *oldLabel);
-
-        // will take care of the Edge ownership
-        insertUniqueEdge(edge);
     }
-
-    delete nodedSegStrings;
-
-    if(noder != workingNoder) {
-        delete noder;
+    catch (const util::GEOSException&)/* exc */
+    {
+        if (nodedSegStrings != nullptr)
+        {
+            //only nodedSegStrings is not equal to nullptr need to free up the memory below
+            for (m++; m != nodedSegStrings->end(); ++m)
+            {
+                SegmentString* segStr = *m;
+                delete segStr;
+            }
+            delete nodedSegStrings;
+        }
+        if (noder != workingNoder) {
+            delete noder;
+        }
+        throw;
     }
 }
 
@@ -731,7 +755,13 @@ BufferBuilder::createSubgraphs(PlanarGraph* graph, std::vector<BufferSubgraph*>&
         Node* node = nodes[i];
         if(!node->isVisited()) {
             BufferSubgraph* subgraph = new BufferSubgraph();
-            subgraph->create(node);
+            try {
+                subgraph->create(node);
+            }
+            catch (const util::GEOSException& /* exc */) {
+                delete subgraph;
+                throw;
+            }
             subgraphList.push_back(subgraph);
         }
     }

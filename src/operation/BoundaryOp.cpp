@@ -137,7 +137,9 @@ BoundaryOp::boundaryMultiLineString(const geom::MultiLineString& mLine)
 
     // return Point or MultiPoint
     if (bdyPts->size() == 1) {
-        return std::unique_ptr<Geometry>(m_geomFact.createPoint(bdyPts->getAt(0)));
+        return bdyPts->applyAt(0, [this](const auto& c) {
+            return m_geomFact.createPoint(c);
+        });
     }
     // this handles 0 points case as well
     return std::unique_ptr<Geometry>(m_geomFact.createMultiPoint(*bdyPts));
@@ -146,8 +148,8 @@ BoundaryOp::boundaryMultiLineString(const geom::MultiLineString& mLine)
 std::unique_ptr<CoordinateSequence>
 BoundaryOp::computeBoundaryCoordinates(const geom::MultiLineString& mLine)
 {
-    auto bdyPts = detail::make_unique<CoordinateSequence>();
-    std::map<Coordinate, int> endpointMap;
+    auto bdyPts = detail::make_unique<CoordinateSequence>(0, mLine.hasZ(), mLine.hasM());
+    std::map<geom::CoordinateXYZM, int> endpointMap;
 
     for (std::size_t i = 0; i < mLine.getNumGeometries(); i++) {
       const LineString* line = mLine.getGeometryN(i);
@@ -155,15 +157,19 @@ BoundaryOp::computeBoundaryCoordinates(const geom::MultiLineString& mLine)
       if (line->getNumPoints() == 0) {
         continue;
       }
-
-      endpointMap[line->getCoordinateN(0)]++;
-      endpointMap[line->getCoordinateN(line->getNumPoints() - 1)]++;
+      
+      const CoordinateSequence& pts = *line->getCoordinatesRO();
+      geom::CoordinateXYZM start;
+      geom::CoordinateXYZM end;
+      pts.getAt(0, start);
+      pts.getAt(pts.size() - 1, end);
+      endpointMap[start]++;
+      endpointMap[end]++;
     }
 
-    for (const auto& entry: endpointMap) {
-        auto valence = entry.second;
+    for (const auto& [coord, valence]: endpointMap) {
         if (m_bnRule.isInBoundary(valence)) {
-            bdyPts->add(entry.first);
+            bdyPts->add(coord);
         }
     }
 
